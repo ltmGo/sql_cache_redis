@@ -6,19 +6,25 @@ import (
 	"github.com/go-redis/redis"
 	"github.com/ltmGo/sql_cache_redis/go_redis"
 	"strings"
+	"sync"
 	"time"
 )
 
 
 const (
-	sleepMillisecondsDefault = 100 //默认休眠的时间，毫秒
+	sleepMillisecondsDefault = 60 //默认休眠的时间，毫秒
 	cacheSecondsDefault = 120 //秒
-	responseSecondsDefault = 30 //超时30秒
+	responseSecondsDefault = 10 //超时10秒
 )
 
+type KeyConfig struct {
+	CacheSeconds uint //缓存过期时间
+	ResponseSeconds uint //响应超时时间
+	SleepMilliseconds uint //默认休眠时间，根据查询时间自己计算
+}
 
 //KeyChannel redis的缓存key
-type KeyChannel struct {
+type keyChannel struct {
 	ch chan struct{}
 	cacheSeconds time.Duration //缓存过期时间
 	responseSeconds time.Duration //响应超时时间
@@ -26,7 +32,7 @@ type KeyChannel struct {
 }
 
 type cacheRedis struct {
-	ChannelMap map[string]*KeyChannel
+	ChannelMap sync.Map
 	Client *redis.Client
 }
 
@@ -45,60 +51,64 @@ func NewCacheRedis(redisHost, redisPwd string, redisDb, redisPool, MinIdleConnes
 		return err, nil
 	}
 	return nil, &cacheRedis{
-		ChannelMap: make(map[string]*KeyChannel),
+		ChannelMap: sync.Map{},
 		Client:  client,
 	}
 }
 
-//checkKeyChannel 检验key参数
-func (k *KeyChannel) checkKeyChannel() {
-	if k.cacheSeconds == 0 {
-		k.cacheSeconds = cacheSecondsDefault
-	}
-	if k.responseSeconds == 0 {
-		k.responseSeconds = responseSecondsDefault
-	}
-	if k.sleepMilliseconds == 0 {
-		k.sleepMilliseconds = sleepMillisecondsDefault
-	}
-}
-
-
 //NewChanelMap 创建channel通道
-func (c *cacheRedis) NewChanelMap(key string, configChannel *KeyChannel) {
-	_, ok := c.ChannelMap[key]
+func (c *cacheRedis) NewChanelMap(key string, configChannel *KeyConfig) *keyChannel{
+	cacheKey, ok := c.ChannelMap.Load(key)
 	//如果不存在就创建
 	if !ok {
 		//创建一个有缓冲的通道
-		chBool := make(chan struct{}, 1)
-		chBool <- struct {}{}
-		configChannel.checkKeyChannel()
-		cacheKey := &KeyChannel{
-			ch: chBool,
-			cacheSeconds: configChannel.cacheSeconds*time.Second,
-			responseSeconds: configChannel.responseSeconds*time.Second,
-			sleepMilliseconds: configChannel.sleepMilliseconds*time.Millisecond,
-		}
-		c.ChannelMap[key] = cacheKey
+		return c.newKeyChannel(key, configChannel)
+	}else {
+		return cacheKey.(*keyChannel)
 	}
-	return
 }
 
-
-//checkChannelExists 检查key的通道是否存在
-func (c *cacheRedis) checkChannelExists(key string) error {
-	_, ok := c.ChannelMap[key]
-	//如果不存在就创建
-	if !ok {
-		return errors.New(key + " key未初始化")
+//checkKeyChannel 检验key参数
+func (k *KeyConfig) checkKeyChannel() {
+	if k.CacheSeconds == 0 {
+		k.CacheSeconds = cacheSecondsDefault
 	}
-	return nil
+	if k.ResponseSeconds == 0 {
+		k.ResponseSeconds = responseSecondsDefault
+	}
+	if k.SleepMilliseconds == 0 {
+		k.SleepMilliseconds = sleepMillisecondsDefault
+	}
 }
+
+//newKeyChannel 使用sync.Map创建，避免并发情况下重复创建cache的channel单例，利用sync.Map的存在就不覆盖
+//如果有条件，每个缓存可以先初始化通道
+func (c *cacheRedis) newKeyChannel(key string, configChannel *KeyConfig) *keyChannel {
+	chBool := make(chan struct{}, 1)
+	chBool <- struct {}{}
+	configChannel.checkKeyChannel()
+	cacheKey := &keyChannel{
+		ch: chBool,
+		cacheSeconds: time.Duration(configChannel.CacheSeconds) * time.Second,
+		responseSeconds: time.Duration(configChannel.ResponseSeconds) * time.Second,
+		sleepMilliseconds: time.Duration(configChannel.SleepMilliseconds) * time.Millisecond,
+	}
+	//time.Sleep(time.Millisecond*10)
+	//若key已存在，则返回true和key对应的value，不会修改原来的value
+	exists, _ := c.ChannelMap.LoadOrStore(key, cacheKey)
+	//==========================验证sync.Map是否重复创建覆盖以前的实例==========================
+	//if ok {
+	//	fmt.Println(key, " 已被创建, 后获取的时间戳", exists.(*keyChannel).time)
+	//}else {
+	//	fmt.Println(key, " 第一次创建的时间戳", cacheKey.time)
+	//}
+	return exists.(*keyChannel)
+}
+
 
 //GetChanel 获取key的通道
-func (c *cacheRedis) getChanel(key string) *KeyChannel {
-	cacheKey, _ := c.ChannelMap[key]
-	return cacheKey
+func (c *cacheRedis) getChanel(key string) *keyChannel {
+	return c.NewChanelMap(key, &KeyConfig{})
 }
 
 
@@ -119,13 +129,15 @@ func (c *cacheRedis) setChannelValues(key string) {
 }
 
 
-//Set redis设置缓存的值
-func (c *cacheRedis) Set(key, values string) error {
-	err := c.checkChannelExists(key)
-	if err != nil {
-		return err
+//Set redis设置缓存的值，过期时间也可以重新设置
+func (c *cacheRedis) Set(key, values string, expire ...uint) error {
+	var ex time.Duration
+	if len(expire) == 1 {
+		ex = time.Second * time.Duration(expire[0])
+	}else {
+		ex = c.getChanel(key).cacheSeconds
 	}
-	err = c.Client.Set(key, values, c.getChanel(key).cacheSeconds).Err()
+	err := c.Client.Set(key, values, ex).Err()
 	if err == nil {
 		//多增加了10毫秒，是为了避免阻塞的协程，重复访问db并写缓存
 		time.Sleep(c.getChanel(key).sleepMilliseconds + 10)
@@ -136,10 +148,6 @@ func (c *cacheRedis) Set(key, values string) error {
 
 
 func (c *cacheRedis) Get(key string) (err error, ok bool, res string){
-	err = c.checkChannelExists(key)
-	if err != nil {
-		return
-	}
 	ch := c.getChanel(key)
 	ctx, cancel := context.WithTimeout(context.Background(), ch.responseSeconds)
 	defer cancel()

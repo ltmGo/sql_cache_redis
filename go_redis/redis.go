@@ -26,4 +26,5 @@ func InitRedis(redisCfg *RedisCfg) (error, *redis.Client) {
 	} else {
 		return nil, client
 	}
+
 }

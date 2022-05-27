@@ -3,6 +3,7 @@ package sql_cache_redis
 import (
 	"fmt"
 	"runtime"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -10,18 +11,20 @@ import (
 
 func TestMakeCacheRedis(t *testing.T) {
 	runtime.GOMAXPROCS(8)
-	errs, client := NewCacheRedis("", "", 1, 500, 10)
+	host := "r-uf6tl6zqmbrmd690uupd.redis.rds.aliyuncs.com:6379"
+	pas := "yebao@2021"
+	errs, client := NewCacheRedis(host, pas, 1, 500, 10)
 	if errs != nil {
 		t.Log(errs)
 		return
 	}
-	client.NewChanelMap("test_game", &KeyChannel{})
+	client.NewChanelMap("test_game:1", &KeyConfig{60, 10, 100})
 	var wg sync.WaitGroup
-	for i := 0; i < 10000 ; i ++ {
+	for i := 0; i < 100 ; i ++ {
 		wg.Add(1)
 		go func(i int) {
 			wg.Done()
-			err, ok, res := client.Get("test_game")
+			err, ok, res := client.Get("test_game:" + strconv.Itoa(i))
 			if err != nil {
 				t.Log(err)
 				return
@@ -33,7 +36,7 @@ func TestMakeCacheRedis(t *testing.T) {
 			if ok {
 				fmt.Println(i, "  得到了锁")
 				time.Sleep(time.Second)
-				err = client.Set("test_game", "123456")
+				err = client.Set("test_game:"  + strconv.Itoa(i), "123456")
 				if err != nil {
 					t.Log(err)
 					return
@@ -42,5 +45,5 @@ func TestMakeCacheRedis(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	time.Sleep(time.Second*30)
+	time.Sleep(time.Second*4)
 }
