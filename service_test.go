@@ -11,8 +11,8 @@ import (
 
 func TestMakeCacheRedis(t *testing.T) {
 	runtime.GOMAXPROCS(8)
-	host := "r-uf6tl6zqmbrmd690uupd.redis.rds.aliyuncs.com:6379"
-	pas := "yebao@2021"
+	host := ""
+	pas := ""
 	errs, client := NewCacheRedis(host, pas, 1, 500, 10)
 	if errs != nil {
 		t.Log(errs)
