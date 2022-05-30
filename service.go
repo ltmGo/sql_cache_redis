@@ -146,11 +146,17 @@ func (c *CacheRedis) Set(key, values string, expire ...uint) error {
 	return err
 }
 
-
-func (c *CacheRedis) Get(key string) (err error, ok bool, res string){
+//Get 根据sql的查询时间，指定每次休眠的时间毫秒
+func (c *CacheRedis) Get(key string, sleep ...uint) (err error, ok bool, res string){
 	ch := c.getChanel(key)
 	ctx, cancel := context.WithTimeout(context.Background(), ch.responseSeconds)
 	defer cancel()
+	var ex time.Duration
+	if len(sleep) == 1 {
+		ex = time.Millisecond * time.Duration(sleep[0])
+	}else {
+		ex = ch.sleepMilliseconds
+	}
 	for {
 		res, err = c.getValues(key)
 		if err != nil || res != "" {
@@ -167,7 +173,7 @@ func (c *CacheRedis) Get(key string) (err error, ok bool, res string){
 			return
 		default:
 			//休眠毫秒
-			time.Sleep(ch.sleepMilliseconds)
+			time.Sleep(ex)
 		}
 	}
 }
