@@ -31,13 +31,13 @@ type keyChannel struct {
 	sleepMilliseconds time.Duration //默认休眠时间，根据查询时间自己计算
 }
 
-type cacheRedis struct {
+type CacheRedis struct {
 	ChannelMap sync.Map
 	Client *redis.Client
 }
 
 //NewCacheRedis 构造函数
-func NewCacheRedis(redisHost, redisPwd string, redisDb, redisPool, MinIdleConnes int) (error, *cacheRedis) {
+func NewCacheRedis(redisHost, redisPwd string, redisDb, redisPool, MinIdleConnes int) (error, *CacheRedis) {
 	redisCfg := &go_redis.RedisCfg{
 		Addr: redisHost,
 		Password: redisPwd,
@@ -50,14 +50,14 @@ func NewCacheRedis(redisHost, redisPwd string, redisDb, redisPool, MinIdleConnes
 	if err != nil {
 		return err, nil
 	}
-	return nil, &cacheRedis{
+	return nil, &CacheRedis{
 		ChannelMap: sync.Map{},
 		Client:  client,
 	}
 }
 
 //NewChanelMap 创建channel通道
-func (c *cacheRedis) NewChanelMap(key string, configChannel *KeyConfig) *keyChannel{
+func (c *CacheRedis) NewChanelMap(key string, configChannel *KeyConfig) *keyChannel{
 	cacheKey, ok := c.ChannelMap.Load(key)
 	//如果不存在就创建
 	if !ok {
@@ -83,7 +83,7 @@ func (k *KeyConfig) checkKeyChannel() {
 
 //newKeyChannel 使用sync.Map创建，避免并发情况下重复创建cache的channel单例，利用sync.Map的存在就不覆盖
 //如果有条件，每个缓存可以先初始化通道
-func (c *cacheRedis) newKeyChannel(key string, configChannel *KeyConfig) *keyChannel {
+func (c *CacheRedis) newKeyChannel(key string, configChannel *KeyConfig) *keyChannel {
 	chBool := make(chan struct{}, 1)
 	chBool <- struct {}{}
 	configChannel.checkKeyChannel()
@@ -107,13 +107,13 @@ func (c *cacheRedis) newKeyChannel(key string, configChannel *KeyConfig) *keyCha
 
 
 //GetChanel 获取key的通道
-func (c *cacheRedis) getChanel(key string) *keyChannel {
+func (c *CacheRedis) getChanel(key string) *keyChannel {
 	return c.NewChanelMap(key, &KeyConfig{})
 }
 
 
 //GetValues 从redis中获取value
-func (c *cacheRedis) getValues(key string) (string, error) {
+func (c *CacheRedis) getValues(key string) (string, error) {
 	res, err := c.Client.Get(key).Result()
 	if err != nil {
 		if strings.Contains(err.Error(), "redis: nil") {
@@ -124,13 +124,13 @@ func (c *cacheRedis) getValues(key string) (string, error) {
 }
 
 //SetChannelValues 修改channel状态
-func (c *cacheRedis) setChannelValues(key string) {
+func (c *CacheRedis) setChannelValues(key string) {
 	c.getChanel(key).ch <- struct{}{}
 }
 
 
 //Set redis设置缓存的值，过期时间也可以重新设置
-func (c *cacheRedis) Set(key, values string, expire ...uint) error {
+func (c *CacheRedis) Set(key, values string, expire ...uint) error {
 	var ex time.Duration
 	if len(expire) == 1 {
 		ex = time.Second * time.Duration(expire[0])
@@ -147,7 +147,7 @@ func (c *cacheRedis) Set(key, values string, expire ...uint) error {
 }
 
 
-func (c *cacheRedis) Get(key string) (err error, ok bool, res string){
+func (c *CacheRedis) Get(key string) (err error, ok bool, res string){
 	ch := c.getChanel(key)
 	ctx, cancel := context.WithTimeout(context.Background(), ch.responseSeconds)
 	defer cancel()
