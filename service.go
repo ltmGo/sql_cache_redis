@@ -113,11 +113,11 @@ func (c *CacheRedis) getChanel(key string) *keyChannel {
 
 
 //GetValues 从redis中获取value
-func (c *CacheRedis) getValues(key string) (string, error) {
-	res, err := c.Client.Get(key).Result()
+func (c *CacheRedis) getValues(key string) ([]byte, error) {
+	res, err := c.Client.Get(key).Bytes()
 	if err != nil {
 		if strings.Contains(err.Error(), "redis: nil") {
-			return "", nil
+			return nil, nil
 		}
 	}
 	return res, err
@@ -130,7 +130,7 @@ func (c *CacheRedis) setChannelValues(key string) {
 
 
 //Set redis设置缓存的值，过期时间也可以重新设置
-func (c *CacheRedis) Set(key, values string, expire ...uint) error {
+func (c *CacheRedis) Set(key string, values []byte, expire ...uint) error {
 	var ex time.Duration
 	if len(expire) == 1 {
 		ex = time.Second * time.Duration(expire[0])
@@ -147,7 +147,7 @@ func (c *CacheRedis) Set(key, values string, expire ...uint) error {
 }
 
 //Get 根据sql的查询时间，指定每次休眠的时间毫秒
-func (c *CacheRedis) Get(key string, sleep ...uint) (err error, ok bool, res string){
+func (c *CacheRedis) Get(key string, sleep ...uint) (err error, ok bool, res []byte){
 	ch := c.getChanel(key)
 	ctx, cancel := context.WithTimeout(context.Background(), ch.responseSeconds)
 	defer cancel()
@@ -159,7 +159,7 @@ func (c *CacheRedis) Get(key string, sleep ...uint) (err error, ok bool, res str
 	}
 	for {
 		res, err = c.getValues(key)
-		if err != nil || res != "" {
+		if err != nil || res != nil {
 			return
 		}
 		select {

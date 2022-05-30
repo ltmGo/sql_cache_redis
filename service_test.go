@@ -20,7 +20,7 @@ func TestMakeCacheRedis(t *testing.T) {
 	}
 	client.NewChanelMap("test_game:1", &KeyConfig{60, 10, 100})
 	var wg sync.WaitGroup
-	for i := 0; i < 100 ; i ++ {
+	for i := 0; i < 10 ; i ++ {
 		wg.Add(1)
 		go func(i int) {
 			wg.Done()
@@ -29,14 +29,14 @@ func TestMakeCacheRedis(t *testing.T) {
 				t.Log(err)
 				return
 			}
-			if res != "" {
-				fmt.Println(i, " 获取到了值：" + res)
+			if res != nil {
+				fmt.Println(i, " 获取到了值：" + string(res))
 				return
 			}
 			if ok {
 				fmt.Println(i, "  得到了锁")
 				time.Sleep(time.Second)
-				err = client.Set("test_game:"  + strconv.Itoa(i), "123456")
+				err = client.Set("test_game:"  + strconv.Itoa(i), []byte("123456"))
 				if err != nil {
 					t.Log(err)
 					return
