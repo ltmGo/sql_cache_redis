@@ -186,7 +186,7 @@ func (c *CacheRedis) Del(key string) error {
 
 //DeferDo 返回之前执行的方法，可以用在查询内部
 func (c *CacheRedis) DeferDo(err error, redisValues []byte, key string, sqlRes interface{}, ok bool, expire ...uint) {
-	if ok && redisValues != nil {
+	if ok && redisValues == nil {
 		if err == nil && sqlRes != nil {
 			values, errs := jsoniter.Marshal(sqlRes)
 			if errs == nil {
