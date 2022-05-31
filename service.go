@@ -2,6 +2,7 @@ package sql_cache_redis
 
 import (
 	"context"
+	jsoniter "github.com/json-iterator/go"
 	"errors"
 	"github.com/go-redis/redis"
 	"github.com/ltmGo/sql_cache_redis/go_redis"
@@ -181,4 +182,26 @@ func (c *CacheRedis) Get(key string, sleep ...uint) (err error, ok bool, res []b
 //Del 删除缓存
 func (c *CacheRedis) Del(key string) error {
 	return c.Client.Del(key).Err()
+}
+
+//DeferDo 返回之前执行的方法，可以用在查询内部
+func (c *CacheRedis) DeferDo(err error, redisValues []byte, key string, sqlRes interface{}, ok bool, expire ...uint) {
+	if ok && redisValues != nil {
+		if err == nil && sqlRes != nil {
+			values, errs := jsoniter.Marshal(sqlRes)
+			if errs == nil {
+				var ex uint
+				if len(expire) == 1 {
+					ex = expire[0]
+				}else {
+					ex = uint(c.getChanel(key).cacheSeconds)
+				}
+				_ = c.Set(key, values, ex)
+			}else {
+				c.SetChannelValues(key)
+			}
+		}else {
+			c.SetChannelValues(key)
+		}
+	}
 }
