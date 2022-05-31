@@ -177,3 +177,8 @@ func (c *CacheRedis) Get(key string, sleep ...uint) (err error, ok bool, res []b
 		}
 	}
 }
+
+//Del 删除缓存
+func (c *CacheRedis) Del(key string) error {
+	return c.Client.Del(key).Err()
+}
