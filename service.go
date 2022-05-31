@@ -123,8 +123,8 @@ func (c *CacheRedis) getValues(key string) ([]byte, error) {
 	return res, err
 }
 
-//SetChannelValues 修改channel状态
-func (c *CacheRedis) setChannelValues(key string) {
+//SetChannelValues 修改channel状态，需要暴露在外面，外面的sql如果查询失败了，可以主动触发修改
+func (c *CacheRedis) SetChannelValues(key string) {
 	c.getChanel(key).ch <- struct{}{}
 }
 
@@ -142,7 +142,7 @@ func (c *CacheRedis) Set(key string, values []byte, expire ...uint) error {
 		//多增加了10毫秒，是为了避免阻塞的协程，重复访问db并写缓存
 		time.Sleep(c.getChanel(key).sleepMilliseconds + 10)
 	}
-	c.setChannelValues(key)
+	c.SetChannelValues(key)
 	return err
 }
 
