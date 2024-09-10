@@ -1,14 +1,15 @@
 package go_redis
 
 import (
-	"github.com/go-redis/redis"
+	"context"
+	"github.com/redis/go-redis/v9"
 )
 
 type RedisCfg struct {
-	Addr         string //host:port address.
-	Password     string
-	DB           int // Database to be selected after connecting to the server.
-	PoolSize     int // Maximum number of socket connections.  Default is 10 connections per every CPU as reported by runtime.NumCPU.
+	Addr          string //host:port address.
+	Password      string
+	DB            int // Database to be selected after connecting to the server.
+	PoolSize      int // Maximum number of socket connections.  Default is 10 connections per every CPU as reported by runtime.NumCPU.
 	MinIdleConnes int // Minimum number of idle connections which is useful when establishing new connection is slow.
 }
 
@@ -20,7 +21,7 @@ func InitRedis(redisCfg *RedisCfg) (error, *redis.Client) {
 		PoolSize:     redisCfg.PoolSize,
 		MinIdleConns: redisCfg.MinIdleConnes,
 	})
-	_, err := client.Ping().Result()
+	_, err := client.Ping(context.Background()).Result()
 	if err != nil {
 		return err, nil
 	} else {

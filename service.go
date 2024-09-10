@@ -1,9 +1,10 @@
 package sql_cache_redis
 
 import (
-	"github.com/go-redis/redis"
+	"context"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/ltmGo/sql_cache_redis/go_redis"
+	"github.com/redis/go-redis/v9"
 	"strings"
 	"sync"
 	"time"
@@ -110,18 +111,13 @@ func (c *CacheRedis) getChanel(key string) *keyChannel {
 
 // GetValues 从redis中获取value
 func (c *CacheRedis) getValues(key string) ([]byte, error) {
-	res, err := c.Client.Get(key).Bytes()
+	res, err := c.Client.Get(context.Background(), key).Bytes()
 	if err != nil {
 		if strings.Contains(err.Error(), "redis: nil") {
 			return nil, nil
 		}
 	}
 	return res, err
-}
-
-// SetChannelValues 修改channel状态，需要暴露在外面，外面的sql如果查询失败了，可以主动触发修改
-func (c *CacheRedis) SetChannelValues(key string) {
-	c.getChanel(key).ch <- struct{}{}
 }
 
 // Set redis设置缓存的值，过期时间也可以重新设置
@@ -132,16 +128,15 @@ func (c *CacheRedis) Set(key string, values []byte, expire ...uint) error {
 	} else {
 		ex = c.getChanel(key).cacheSeconds
 	}
-	err := c.Client.Set(key, values, ex).Err()
+	err := c.Client.Set(context.Background(), key, values, ex).Err()
 	if err != nil {
 		return err
 	}
-	c.SetChannelValues(key)
 	return nil
 }
 
 // Get 根据sql的查询时间，指定每次休眠的时间毫秒----休眠性能太差，使用cond通知其它协程
-func (c *CacheRedis) Get(key string, sleep ...uint) (err error, ok bool, res []byte, cond *sync.Cond) {
+func (c *CacheRedis) Get(key string, sleep ...uint) (err error, ok bool, res []byte) {
 	ch := c.getChanel(key)
 	res, err = c.getValues(key)
 	if err != nil || res != nil {
@@ -153,22 +148,26 @@ func (c *CacheRedis) Get(key string, sleep ...uint) (err error, ok bool, res []b
 		ok = true
 	default:
 		//返回一个cond---通知其它协程到redis里面查询数据
-		cond = ch.cond
+		cond := ch.cond
+		cond.L.Lock()
+		cond.Wait()
+		cond.L.Unlock()
+		res, err = c.getValues(key)
 	}
 	return
 }
 
 // Del 删除缓存
 func (c *CacheRedis) Del(key string) error {
-	return c.Client.Del(key).Err()
+	return c.Client.Del(context.Background(), key).Err()
 }
 
 // DeferDo 返回之前执行的方法，可以用在查询内部
 func (c *CacheRedis) DeferDo(err error, redisValues []byte, key string, sqlRes interface{}, ok bool, expire ...uint) {
 	if ok && redisValues == nil {
 		if err == nil && sqlRes != nil {
-			values, errs := jsoniter.Marshal(sqlRes)
-			if errs == nil {
+			values, e := jsoniter.Marshal(sqlRes)
+			if e == nil {
 				var ex uint
 				if len(expire) == 1 {
 					ex = expire[0]
@@ -176,11 +175,8 @@ func (c *CacheRedis) DeferDo(err error, redisValues []byte, key string, sqlRes i
 					ex = uint(c.getChanel(key).cacheSeconds)
 				}
 				_ = c.Set(key, values, ex)
-			} else {
-				c.SetChannelValues(key)
 			}
-		} else {
-			c.SetChannelValues(key)
 		}
+		c.getChanel(key).cond.Broadcast()
 	}
 }
