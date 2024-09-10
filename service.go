@@ -177,6 +177,9 @@ func (c *CacheRedis) DeferDo(err error, redisValues []byte, key string, sqlRes i
 				_ = c.Set(key, values, ex)
 			}
 		}
-		c.getChanel(key).cond.Broadcast()
+		conn := c.getChanel(key)
+		conn.cond.Broadcast()
+		//必须创建一个新的，避免缓存失效后，不能有新的协程进入
+		conn.ch <- struct{}{}
 	}
 }

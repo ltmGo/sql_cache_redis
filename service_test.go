@@ -3,7 +3,6 @@ package sql_cache_redis
 import (
 	"fmt"
 	"runtime"
-	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -11,20 +10,21 @@ import (
 
 func TestMakeCacheRedis(t *testing.T) {
 	runtime.GOMAXPROCS(8)
-	host := ""
-	pas := ""
+	host := "39.98.84.55:63794"
+	pas := "Yunshi@123"
 	errs, client := NewCacheRedis(host, pas, 1, 500, 10)
 	if errs != nil {
 		t.Log(errs)
 		return
 	}
 	client.newChanelMap("test_game:1", &KeyConfig{60, 10, 100})
+	client.Del("test_game")
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func(i int) {
 			wg.Done()
-			err, ok, res, cond := client.Get("test_game:" + strconv.Itoa(i))
+			err, ok, res := client.Get("test_game")
 			if err != nil {
 				t.Log(err)
 				return
@@ -36,16 +36,7 @@ func TestMakeCacheRedis(t *testing.T) {
 			if ok {
 				fmt.Println(i, "  得到了锁")
 				time.Sleep(time.Second)
-				err = client.Set("test_game:"+strconv.Itoa(i), []byte("123456"))
-				if err != nil {
-					t.Log(err)
-					return
-				}
-			}
-			if cond != nil {
-				cond.L.Lock()
-				cond.Wait()
-				cond.L.Unlock()
+				client.DeferDo(nil, nil, "test_game", "123456", ok)
 			}
 		}(i)
 	}
